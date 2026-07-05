@@ -1,0 +1,18 @@
+# Environment / secrets
+.env
+
+# VS Code Local History (may contain .env snapshots with secrets)
+.history/
+
+# RAG vector store
+.rag_store/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# OS / editor
+.DS_Store
+.vscode/
