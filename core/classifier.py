@@ -34,14 +34,38 @@ def _sanitize(name: Optional[str]) -> str:
     return cleaned[:60] or "Uncategorized"
 
 
-def _build_user_text(filename: str, ext: str, known: list[str], payload: str) -> str:
+def _human_size(num: Optional[int]) -> str:
+    """Format a byte count as a short human-readable size."""
+    if not num or num < 0:
+        return "unknown"
+    size = float(num)
+    for unit in ("B", "KB", "MB", "GB"):
+        if size < 1024:
+            return f"{size:.0f} {unit}" if unit == "B" else f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size:.1f} TB"
+
+
+def _build_user_text(
+    filename: str,
+    ext: str,
+    known: list[str],
+    payload: str,
+    *,
+    detected: Optional[str] = None,
+    size: Optional[int] = None,
+) -> str:
     known_text = ", ".join(known) if known else "none yet"
-    return (
-        f"Filename: {filename}\n"
-        f"Extension: {ext or '(none)'}\n"
-        f"Existing categories (reuse when appropriate): {known_text}\n\n"
-        f"{payload}"
-    )
+    lines = [
+        f"Filename: {filename}",
+        f"Extension: {ext or '(none)'}",
+    ]
+    if detected:
+        lines.append(f"Detected file type (from file contents): {detected}")
+    if size is not None:
+        lines.append(f"File size: {_human_size(size)}")
+    lines.append(f"Existing categories (reuse when appropriate): {known_text}")
+    return "\n".join(lines) + f"\n\n{payload}"
 
 
 def classify(
@@ -54,6 +78,8 @@ def classify(
     text: Optional[str] = None,
     image_base64: Optional[str] = None,
     image_mime: Optional[str] = None,
+    detected: Optional[str] = None,
+    size: Optional[int] = None,
     known_categories: Optional[list[str]] = None,
 ) -> tuple[str, Optional[str], str]:
     """Classify one file. Returns (top_category, sub_category|None, summary)."""
@@ -67,6 +93,8 @@ def classify(
             "This file is an image. Look at it carefully and classify it, using "
             "a nested sub_category to separate image kinds (e.g. Images/Memes, "
             "Images/Animals, Images/Screenshots, Images/People).",
+            detected=detected,
+            size=size,
         )
         user_content = [
             {"type": "text", "text": prompt},
@@ -80,9 +108,12 @@ def classify(
         payload = (
             f"File content (may be truncated):\n{snippet}"
             if snippet
-            else "No readable content was extracted; classify from the filename."
+            else "No readable content was extracted; classify from the filename, "
+            "detected file type, and size above."
         )
-        user_content = _build_user_text(filename, ext, known, payload)
+        user_content = _build_user_text(
+            filename, ext, known, payload, detected=detected, size=size
+        )
 
     # Reasoning-model families (gpt-5, o1/o3/o4) only accept the default
     # temperature, so only pin temperature=0 for models that support it.

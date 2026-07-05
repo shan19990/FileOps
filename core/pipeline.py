@@ -163,6 +163,8 @@ async def organize(
                             text=text,
                             image_base64=content.get("image_base64"),
                             image_mime=content.get("mime"),
+                            detected=content.get("detected"),
+                            size=entry.get("size"),
                             known_categories=known[:12],
                         )
 

@@ -113,6 +113,66 @@ def _unique_target(target: str) -> str:
     return f"{base} ({counter}){ext}"
 
 
+def _sniff_type(path: str) -> str:
+    """Best-effort human-readable file type from magic bytes (dependency-free).
+
+    Detects the *real* type regardless of extension and flags common installers,
+    so files can be classified on evidence rather than a possibly-wrong filename.
+    """
+    try:
+        with open(_long(path), "rb") as fh:
+            head = fh.read(262144)  # 256 KB — enough to find installer markers
+    except OSError:
+        return ""
+    if not head:
+        return "empty file"
+
+    sig = head[:16]
+    low = head.lower()
+
+    if sig.startswith(b"%PDF"):
+        return "PDF document"
+    if sig.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "PNG image"
+    if sig[:3] == b"\xff\xd8\xff":
+        return "JPEG image"
+    if sig[:6] in (b"GIF87a", b"GIF89a"):
+        return "GIF image"
+    if sig[:2] == b"BM":
+        return "BMP image"
+    if sig[:4] == b"Rar!":
+        return "RAR archive"
+    if sig[:6] == b"\x37\x7a\xbc\xaf\x27\x1c":
+        return "7-Zip archive"
+    if sig[:4] == b"PK\x03\x04":
+        return "ZIP-based file (archive, or Office/APK/JAR)"
+    if sig[:4] == b"\xd0\xcf\x11\xe0":
+        if b"windows installer" in low:
+            return "Windows Installer package (MSI)"
+        return "Microsoft OLE compound file (legacy Office/MSI)"
+    if sig[:2] == b"MZ":
+        if b"nullsoft" in low:
+            return "Windows installer (NSIS setup)"
+        if b"inno setup" in low:
+            return "Windows installer (Inno Setup)"
+        if b"installshield" in low:
+            return "Windows installer (InstallShield)"
+        if b"wise installation" in low:
+            return "Windows installer (Wise)"
+        return "Windows executable (.exe) — application or installer"
+    if sig[:4] == b"fLaC":
+        return "FLAC audio"
+    if sig[:3] == b"ID3" or sig[:2] == b"\xff\xfb":
+        return "MP3 audio"
+    if sig[:4] == b"OggS":
+        return "Ogg media"
+    if head[4:8] == b"ftyp":
+        return "MP4/MOV media (video or audio)"
+    if sig[:4] == b"\x1aE\xdf\xa3":
+        return "Matroska / WebM video"
+    return ""
+
+
 # --- Tools ------------------------------------------------------------------
 @mcp.tool()
 def list_files(directory: str) -> str:
@@ -204,8 +264,11 @@ def extract_content(path: str, max_chars: int = 8000, max_image_dim: int = 1024)
     ext = os.path.splitext(path)[1].lower()
     try:
         if ext in BINARY_EXT:
-            # Media/binary file: don't read the bytes; classify by filename.
-            return json.dumps({"kind": "unknown", "text": ""})
+            # Media/binary file: don't read the bytes; give a detected-type hint
+            # so classification uses evidence, not just the (maybe wrong) name.
+            return json.dumps(
+                {"kind": "unknown", "text": "", "detected": _sniff_type(path)}
+            )
         if ext in IMAGE_EXT:
             return json.dumps(_read_image(path, max_image_dim))
         if ext in PDF_EXT:
@@ -218,7 +281,9 @@ def extract_content(path: str, max_chars: int = 8000, max_image_dim: int = 1024)
         try:
             return json.dumps({"kind": "text", "text": _read_text(path, max_chars)})
         except (UnicodeError, OSError):
-            return json.dumps({"kind": "unknown", "text": ""})
+            return json.dumps(
+                {"kind": "unknown", "text": "", "detected": _sniff_type(path)}
+            )
     except Exception as exc:  # noqa: BLE001 - report any parse failure to caller
         return json.dumps({"kind": "error", "error": str(exc)})
 
